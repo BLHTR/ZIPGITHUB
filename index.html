@@ -38,12 +38,14 @@
   .right{text-align:right}
   .progress{height:10px;background:#0e1729;border:1px solid rgba(255,255,255,.12);border-radius:999px;overflow:hidden}
   .bar{height:100%;width:0;background:linear-gradient(90deg,#63d3ff,#ffd166)}
-  .log{height:200px;overflow:auto;background:#0e1729;border:1px solid rgba(255,255,255,.08);padding:10px;border-radius:12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;white-space:pre-wrap}
+  .log{height:220px;overflow:auto;background:#0e1729;border:1px solid rgba(255,255,255,.08);padding:10px;border-radius:12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;white-space:pre-wrap}
   .ok{color:var(--ok)}
   .warn{color:var(--warn)}
   .kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;padding:2px 6px;border:1px solid rgba(255,255,255,.2);border-radius:6px;background:#0e1729}
   footer{padding:12px 16px;color:#9fb3c8;font-size:12px;text-align:center}
   .hide{display:none}
+  .choice{display:flex;gap:10px;align-items:center}
+  .choice label{display:inline-flex;gap:6px;align-items:center;background:#0f1a2f;border:1px solid rgba(255,255,255,.1);padding:6px 10px;border-radius:999px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -121,7 +123,7 @@
         </div>
         <div id="drop" class="drop">
           <div style="font-size:14px">Arrastrá acá tu <b>carpeta</b> completa o un <b>.zip</b></div>
-          <div class="muted" style="margin-top:6px">Si el visor bloquea carpetas, usá el **ZIP**: lo descomprimo en el navegador</div>
+          <div class="muted" style="margin-top:6px">Si el visor bloquea carpetas, usá el ZIP: lo descomprimo en el navegador</div>
         </div>
 
         <div style="margin-top:12px" class="grid2">
@@ -130,12 +132,12 @@
             <input id="excludes" type="text" value="node_modules,.git,.DS_Store,Thumbs.db"/>
           </div>
           <div>
-            <label class="small">Límite por archivo</label>
-            <select id="fileLimit">
-              <option value="100">100 MB (GitHub máximo)</option>
-              <option value="50" selected>50 MB (recomendado)</option>
-              <option value="10">10 MB (rápido)</option>
-            </select>
+            <label class="small">Modo de subida</label>
+            <div class="choice">
+              <label><input type="radio" name="mode" value="ask" checked> Preguntar</label>
+              <label><input type="radio" name="mode" value="contents"> Solo contenidos</label>
+              <label><input type="radio" name="mode" value="keep"> Mantener carpeta raíz</label>
+            </div>
           </div>
         </div>
 
@@ -168,6 +170,7 @@
           <ul class="muted">
             <li>Autodetecta usuario y lista repos con tu token (no hace falta escribir owner/repo).</li>
             <li>Soporta <b>carpeta</b> (webkitdirectory) y <b>ZIP</b> (descomprime en el navegador con JSZip).</li>
+            <li>Permite elegir <b>estructura</b>: mantener la carpeta raíz o subir sólo sus contenidos.</li>
             <li>Usa la <b>Git Data API</b> para crear blobs → árbol → commit → actualizar la referencia.</li>
             <li>Sube en paralelo con límite de concurrencia y consolida en <b>un solo commit</b>.</li>
             <li>Si el branch no existe, lo crea con un commit inicial.</li>
@@ -206,7 +209,7 @@
   const zipPicker = $('#zipPicker');
   const drop = $('#drop');
   const excludesEl = $('#excludes');
-  const fileLimitEl = $('#fileLimit');
+  const modeRadios = $$('input[name="mode"]');
   const fileTableBody = $('#fileTable tbody');
   const pushBtn = $('#pushBtn');
   const resetBtn = $('#resetBtn');
@@ -223,6 +226,8 @@
   let allRepos = []; // listado completo
   let selectedRepo = null; // objeto repo elegido
   let files = []; // {file, relPath, size}
+  let lastRootName = '';
+  let uploadMode = 'ask'; // 'ask' | 'contents' | 'keep'
 
   // Helpers
   function humanSize(n){ if(n < 1024) return n + ' B'; if(n < 1024*1024) return (n/1024).toFixed(2)+' KB'; return (n/(1024*1024)).toFixed(2)+' MB'; }
@@ -232,6 +237,21 @@
   function ghHeaders(){ return { 'Accept':'application/vnd.github+json', 'Authorization':'Bearer '+ghToken }; }
   async function ghJson(url, opts={}){ const res = await fetch(url, {...opts, headers:{...ghHeaders(), ...(opts.headers||{})}}); if(!res.ok){ const text = await res.text(); throw new Error('HTTP '+res.status+': '+text); } return res.json(); }
   function updatePushButtonState(){ pushBtn.disabled = !(selectedRepo && files.length>0); }
+
+  // Read mode radios
+  modeRadios.forEach(r=> r.addEventListener('change', ()=>{ uploadMode = r.value; if(files.length){ // re-procesar para reflejar modo
+      log('Cambiando modo de subida a "'+uploadMode+'"…');
+      reapplyMode();
+    }
+  }));
+
+  function reapplyMode(){
+    // Reescribe la tabla y relPaths según el modo seleccionado y lastRootName
+    if(!files.length) return;
+    // Los File originales no los guardamos, pero relPath ya está normalizado.
+    // Esta función sólo refresca la tabla (informativa). El push usa relPath tal como quedó al cargar.
+    renderTable(files);
+  }
 
   // Token show/hide
   toggleTokenBtn.addEventListener('click', ()=>{ tokenEl.type = tokenEl.type === 'password' ? 'text' : 'password'; });
@@ -322,7 +342,7 @@
   folderPicker.addEventListener('change', (e)=>{
     const picked = Array.from(e.target.files||[]);
     if(!picked.length){ log('El selector de carpetas devolvió 0 archivos. Si estás en un visor embebido, probá el botón ZIP.', 'warn'); return; }
-    addFilesFromFileList(picked);
+    processNewSelection(picked);
   });
 
   zipBtn.addEventListener('click', ()=> zipPicker.click());
@@ -341,7 +361,7 @@
         const f = new File([ab], name, {type:'application/octet-stream'});
         list.push(f);
       }
-      addFilesFromFileList(list);
+      processNewSelection(list);
       log('ZIP cargado: '+list.length+' archivos.');
     } catch(err){
       log('FALLÓ al leer ZIP: '+err.message, 'warn');
@@ -353,45 +373,76 @@
   drop.addEventListener('drop', async (e)=>{
     e.preventDefault();
     const dt = e.dataTransfer;
-    // Si soltó un ZIP
     const zipFile = Array.from(dt.files||[]).find(f=> /\.zip$/i.test(f.name));
     if(zipFile){ zipPicker.files = dt.files; zipPicker.dispatchEvent(new Event('change')); return; }
-    // Carpeta via entries API
     const items = dt.items;
     if(items && items.length && items[0].webkitGetAsEntry){
       const entries = [];
       for(const it of items){ const entry = it.webkitGetAsEntry(); if(entry) entries.push(entry); }
       const gathered = await gatherEntries(entries);
-      addFilesFromFileList(gathered);
+      processNewSelection(gathered);
     } else {
       const fl = Array.from(dt.files||[]);
       if(!fl.length){ log('No se detectaron archivos en el drop. Si el navegador limita carpetas, probá con ZIP.', 'warn'); return; }
-      addFilesFromFileList(fl);
+      processNewSelection(fl);
     }
   });
 
-  function addFilesFromFileList(list){
-    if(!list.length) return;
+  function processNewSelection(list){
+    // Determinar raíz común para poder preguntar
     const paths = list.map(f=> f.webkitRelativePath || f.name);
     const common = commonRoot(paths);
-    const limitMB = parseInt(fileLimitEl.value,10);
+    lastRootName = (common && common.endsWith('/')) ? common.slice(0,-1) : common;
+
+    // Elegir modo
+    const selectedRadio = modeRadios.find(r=> r.checked);
+    uploadMode = selectedRadio ? selectedRadio.value : 'ask';
+
+    if(uploadMode === 'ask' && lastRootName){
+      const keep = confirm(`Detecté la carpeta raíz "${lastRootName}".
+
+Aceptar = Subir INCLUYENDO esa carpeta (mantener carpeta raíz).
+Cancelar = Subir SOLO SU CONTENIDO (sin la carpeta).`);
+      uploadMode = keep ? 'keep' : 'contents';
+      // reflejar en los radios
+      modeRadios.forEach(r=> r.checked = (r.value === uploadMode));
+    }
+
+    addFilesFromFileList(list, common, uploadMode);
+  }
+
+  function addFilesFromFileList(list, common, mode){
+    if(!list.length) return;
+    const limitMB = parseInt(document.getElementById('fileLimit').value,10);
     const limitBytes = limitMB*1024*1024;
 
     const mapped = list.map(f=>({ file:f, relPath:(f.webkitRelativePath || f.name).replace(/^\+/,'').replace(/^\/+/,''), size:f.size }));
-    const trimmed = mapped.map(x=> ({ file:x.file, relPath:x.relPath.startsWith(common)? x.relPath.slice(common.length).replace(/^\/+/, '') : x.relPath, size:x.size }));
 
-    let filtered = applyExcludes(trimmed).filter(x=> x.relPath && !x.relPath.endsWith('/') && x.size >= 0);
+    // Si el modo es 'contents', recorte la raíz común; si es 'keep', no la recortamos.
+    const normalized = mapped.map(x=>{
+      if(mode === 'contents' && common && x.relPath.startsWith(common)){
+        return { file:x.file, relPath:x.relPath.slice(common.length).replace(/^\/+/, ''), size:x.size };
+      }
+      return x;
+    });
+
+    let filtered = applyExcludes(normalized).filter(x=> x.relPath && !x.relPath.endsWith('/') && x.size >= 0);
 
     const skipped = [];
     filtered = filtered.filter(x=>{ if(x.size > limitBytes){ skipped.push(x); return false; } return true; });
 
     files = filtered;
-    fileTableBody.innerHTML = files.map(f=>`<tr><td>${escapeHtml(f.relPath)}</td><td class="right">${escapeHtml(humanSize(f.size))}</td></tr>`).join('');
-    const total = files.reduce((a,b)=> a+b.size, 0);
-    countEl.textContent = files.length+ ' archivos';
-    totalEl.textContent = humanSize(total);
+    renderTable(files);
+
     if(skipped.length){ log(`Se omitieron ${skipped.length} archivos por superar el límite por archivo (${limitMB} MB).`, 'warn'); }
     updatePushButtonState();
+  }
+
+  function renderTable(list){
+    fileTableBody.innerHTML = list.map(f=>`<tr><td>${escapeHtml(f.relPath)}</td><td class="right">${escapeHtml(humanSize(f.size))}</td></tr>`).join('');
+    const total = list.reduce((a,b)=> a+b.size, 0);
+    countEl.textContent = list.length+ ' archivos';
+    totalEl.textContent = humanSize(total);
   }
 
   function commonRoot(paths){ if(paths.length===0) return ''; const parts = paths[0].split('/'); let i= parts.length; while(i>0){ const pref = parts.slice(0,i).join('/') + '/'; if(paths.every(p=> p.startsWith(pref))) return pref; i--; } return ''; }
@@ -467,7 +518,7 @@
     }
   }
 
-  pushBtn.addEventListener('click', pushAll);
+  document.getElementById('pushBtn').addEventListener('click', pushAll);
 
 })();
 </script>
