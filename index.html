@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GitHub Folder Uploader — Drag & Drop carpeta / ZIP → push (single commit)</title>
+<style>
+  :root{ --bg:#0b1220; --card:#111a2b; --muted:#9fb3c8; --text:#e8f0fe; --accent:#ffd166; --ok:#06d6a0; --warn:#ef476f; }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 80% -10%, #1b2a4b 0%, #0b1220 50%, #0b1220 100%);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial;color:var(--text)}
+  header{padding:28px 18px 8px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.2px}
+  header .tag{padding:4px 10px;background:rgba(255,209,102,.12);border:1px solid rgba(255,255,255,.35);border-radius:999px;color:var(--accent);font-size:12px}
+  main{max-width:1100px;margin:0 auto;padding:16px}
+  .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}
+  @media (max-width:980px){.grid{grid-template-columns:1fr}}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));border:1px solid rgba(255,255,255,.08);border-radius:18px;box-shadow:0 8px 24px rgba(0,0,0,.35);backdrop-filter: blur(6px)}
+  .section{padding:16px 16px 18px}
+  .section h2{margin:0 0 12px 0;font-size:16px}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  label.small{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+  input[type="text"], input[type="password"], textarea, select{width:100%;padding:12px 12px;border-radius:12px;background:#0d1728;border:1px solid rgba(255,255,255,.1);color:var(--text);outline:none}
+  input::placeholder, textarea::placeholder{color:#6e85a3}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:11px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#142038;color:var(--text);cursor:pointer;font-weight:600}
+  .btn.primary{background:linear-gradient(180deg,#2a3a62,#1c2a4b);border-color:#2a3a62}
+  .btn.accent{background:linear-gradient(180deg,#725c18,#4f3f12);border-color:#6f5b17;color:#ffe8a6}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .pill{padding:6px 10px;background:#0f1a2f;border:1px solid rgba(255,255,255,.08);border-radius:999px;color:#b7c7da;font-size:12px}
+  .drop{border:2px dashed rgba(255,255,255,.2);border-radius:16px;padding:26px;text-align:center;background:rgba(255,255,255,.02)}
+  .drop.dragover{background:rgba(255,255,255,.06)}
+  .muted{color:#9fb3c8}
+  .list{max-height:300px;overflow:auto;border-radius:12px;border:1px solid rgba(255,255,255,.1)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th, td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.06)}
+  tr:last-child td{border-bottom:none}
+  .right{text-align:right}
+  .progress{height:10px;background:#0e1729;border:1px solid rgba(255,255,255,.12);border-radius:999px;overflow:hidden}
+  .bar{height:100%;width:0;background:linear-gradient(90deg,#63d3ff,#ffd166)}
+  .log{height:200px;overflow:auto;background:#0e1729;border:1px solid rgba(255,255,255,.08);padding:10px;border-radius:12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;white-space:pre-wrap}
+  .ok{color:var(--ok)}
+  .warn{color:var(--warn)}
+  .kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;padding:2px 6px;border:1px solid rgba(255,255,255,.2);border-radius:6px;background:#0e1729}
+  footer{padding:12px 16px;color:#9fb3c8;font-size:12px;text-align:center}
+  .hide{display:none}
+</style>
+</head>
+<body>
+  <header>
+    <h1>GitHub Folder Uploader</h1>
+    <span class="tag">Carpeta o ZIP → 1 commit</span>
+    <span class="pill">Tu token queda sólo en tu navegador</span>
+  </header>
+  <main>
+    <div class="grid">
+
+      <!-- Panel izquierdo: conexión, selector de repo, carpeta/zip y push -->
+      <section class="card section">
+        <h2>1) Conectá tu GitHub (sin escribir owner/repo)</h2>
+        <div class="grid2">
+          <div>
+            <label class="small">Token de acceso (PAT) — permiso mínimo: <b>Contents: Read & write</b></label>
+            <input id="token" type="password" placeholder="pegá acá tu token"/>
+          </div>
+          <div>
+            <label class="small">&nbsp;</label>
+            <div class="row">
+              <button id="toggleToken" class="btn">👁️ Mostrar/ocultar</button>
+              <button id="connectBtn" class="btn accent">🔑 Conectar y listar repos</button>
+            </div>
+          </div>
+        </div>
+        <details style="margin-top:8px">
+          <summary>¿Cómo crear un token seguro?</summary>
+          <p class="muted">GitHub → Settings → Developer settings → <b>Personal access tokens</b> → <b>Fine‑grained</b>. Otorgá acceso solo al/los repos que vas a usar, con permiso <b>Contents: Read and write</b>. Si es una organización, quizá necesites aprobar el SSO.</p>
+        </details>
+
+        <hr style="border-color:rgba(255,255,255,.08);margin:14px 0">
+
+        <div id="repoPicker" class="hide">
+          <h2>2) Elegí el repositorio</h2>
+          <div class="grid2">
+            <div>
+              <label class="small">Filtrar</label>
+              <input id="repoFilter" type="text" placeholder="escribí para filtrar por owner/nombre"/>
+            </div>
+            <div>
+              <label class="small">Repositorio</label>
+              <select id="repoSelect"></select>
+            </div>
+          </div>
+          <div class="grid3" style="margin-top:10px">
+            <div>
+              <label class="small">Branch</label>
+              <select id="branchSelect"></select>
+            </div>
+            <div>
+              <label class="small">Subcarpeta destino (opcional)</label>
+              <input id="prefix" type="text" placeholder="ej: docs (para Pages)"/>
+            </div>
+            <div>
+              <label class="small">Mensaje de commit</label>
+              <input id="message" type="text" value="Upload via GitHub Folder Uploader"/>
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <a id="openRepo" class="btn" href="#" target="_blank">↗ Abrir repo en GitHub</a>
+          </div>
+        </div>
+
+        <hr style="border-color:rgba(255,255,255,.08);margin:14px 0">
+
+        <h2>3) Elegí tu carpeta o ZIP</h2>
+        <div class="row" style="gap:10px;align-items:center;margin-bottom:10px">
+          <input id="folderPicker" type="file" webkitdirectory directory multiple style="display:none"/>
+          <input id="zipPicker" type="file" accept=".zip" style="display:none"/>
+          <button class="btn accent" id="pickBtn">📁 Seleccionar carpeta</button>
+          <button class="btn" id="zipBtn">📦 Seleccionar ZIP (fallback)</button>
+          <span class="muted">o soltal una carpeta/ZIP en el recuadro de abajo</span>
+        </div>
+        <div id="drop" class="drop">
+          <div style="font-size:14px">Arrastrá acá tu <b>carpeta</b> completa o un <b>.zip</b></div>
+          <div class="muted" style="margin-top:6px">Si el visor bloquea carpetas, usá el **ZIP**: lo descomprimo en el navegador</div>
+        </div>
+
+        <div style="margin-top:12px" class="grid2">
+          <div>
+            <label class="small">Excluir (patrones simples, separados por coma)</label>
+            <input id="excludes" type="text" value="node_modules,.git,.DS_Store,Thumbs.db"/>
+          </div>
+          <div>
+            <label class="small">Límite por archivo</label>
+            <select id="fileLimit">
+              <option value="100">100 MB (GitHub máximo)</option>
+              <option value="50" selected>50 MB (recomendado)</option>
+              <option value="10">10 MB (rápido)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top:12px" class="list">
+          <table id="fileTable">
+            <thead><tr><th>Ruta</th><th class="right">Tamaño</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:12px" class="grid2">
+          <button id="pushBtn" class="btn primary" disabled>⬆️ Subir y hacer push (1 commit)</button>
+          <button id="resetBtn" class="btn">♻️ Reiniciar selección</button>
+        </div>
+      </section>
+
+      <!-- Panel derecho: estado y logs -->
+      <section class="card section">
+        <h2>Estado</h2>
+        <div class="grid3">
+          <div class="pill" id="count">0 archivos</div>
+          <div class="pill" id="total">0.00 MB</div>
+          <div class="pill" id="branchInfo">branch: —</div>
+        </div>
+        <div style="margin:12px 0" class="progress"><div class="bar" id="bar"></div></div>
+        <div class="log" id="log"></div>
+        <div id="result" style="margin-top:10px"></div>
+        <details style="margin-top:12px">
+          <summary>Notas técnicas</summary>
+          <ul class="muted">
+            <li>Autodetecta usuario y lista repos con tu token (no hace falta escribir owner/repo).</li>
+            <li>Soporta <b>carpeta</b> (webkitdirectory) y <b>ZIP</b> (descomprime en el navegador con JSZip).</li>
+            <li>Usa la <b>Git Data API</b> para crear blobs → árbol → commit → actualizar la referencia.</li>
+            <li>Sube en paralelo con límite de concurrencia y consolida en <b>un solo commit</b>.</li>
+            <li>Si el branch no existe, lo crea con un commit inicial.</li>
+            <li>No borra archivos existentes en el repo; agrega/actualiza los que subís.</li>
+          </ul>
+        </details>
+      </section>
+
+    </div>
+  </main>
+  <footer>
+    Si el botón de carpeta no abre/trae 0 archivos, usá el <b>botón ZIP</b> o abrí este HTML localmente en Chrome/Edge. <span class="muted">(Tu token no se envía a ningún servidor nuestro)</span>
+  </footer>
+
+<!-- JSZip para soporte ZIP -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+(function(){
+  const $ = (sel)=>document.querySelector(sel);
+  const $$ = (sel)=>Array.from(document.querySelectorAll(sel));
+
+  // UI refs
+  const tokenEl = $('#token');
+  const toggleTokenBtn = $('#toggleToken');
+  const connectBtn = $('#connectBtn');
+  const repoPicker = $('#repoPicker');
+  const repoFilterEl = $('#repoFilter');
+  const repoSelect = $('#repoSelect');
+  const branchSelect = $('#branchSelect');
+  const openRepoLink = $('#openRepo');
+  const prefixEl = $('#prefix');
+  const messageEl = $('#message');
+  const pickBtn = $('#pickBtn');
+  const folderPicker = $('#folderPicker');
+  const zipBtn = $('#zipBtn');
+  const zipPicker = $('#zipPicker');
+  const drop = $('#drop');
+  const excludesEl = $('#excludes');
+  const fileLimitEl = $('#fileLimit');
+  const fileTableBody = $('#fileTable tbody');
+  const pushBtn = $('#pushBtn');
+  const resetBtn = $('#resetBtn');
+  const countEl = $('#count');
+  const totalEl = $('#total');
+  const branchInfoEl = $('#branchInfo');
+  const bar = $('#bar');
+  const logEl = $('#log');
+  const resultEl = $('#result');
+
+  // State
+  let ghToken = '';
+  let me = null; // /user
+  let allRepos = []; // listado completo
+  let selectedRepo = null; // objeto repo elegido
+  let files = []; // {file, relPath, size}
+
+  // Helpers
+  function humanSize(n){ if(n < 1024) return n + ' B'; if(n < 1024*1024) return (n/1024).toFixed(2)+' KB'; return (n/(1024*1024)).toFixed(2)+' MB'; }
+  function setProgress(done,total){ const pct = total? Math.min(100, Math.round(done/total*100)) : 0; bar.style.width = pct + '%'; }
+  function escapeHtml(s){return s.replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
+  function log(msg, cls){ const t = new Date().toLocaleTimeString(); const div = document.createElement('div'); if(cls) div.classList.add(cls); div.textContent = '['+t+'] '+msg; logEl.appendChild(div); logEl.scrollTop = logEl.scrollHeight; }
+  function ghHeaders(){ return { 'Accept':'application/vnd.github+json', 'Authorization':'Bearer '+ghToken }; }
+  async function ghJson(url, opts={}){ const res = await fetch(url, {...opts, headers:{...ghHeaders(), ...(opts.headers||{})}}); if(!res.ok){ const text = await res.text(); throw new Error('HTTP '+res.status+': '+text); } return res.json(); }
+  function updatePushButtonState(){ pushBtn.disabled = !(selectedRepo && files.length>0); }
+
+  // Token show/hide
+  toggleTokenBtn.addEventListener('click', ()=>{ tokenEl.type = tokenEl.type === 'password' ? 'text' : 'password'; });
+
+  // Connect: fetch user + repos + show picker
+  connectBtn.addEventListener('click', async ()=>{
+    try{
+      ghToken = (tokenEl.value||'').trim();
+      if(!ghToken){ log('Pegá tu token (PAT) para continuar.','warn'); return; }
+
+      connectBtn.disabled = true;
+      log('Autenticando…');
+      me = await ghJson('https://api.github.com/user');
+      log('Listo: @'+me.login);
+
+      // Traemos repos del usuario (owner/collaborator/org member)
+      allRepos = await fetchAllRepos();
+      if(!allRepos.length){ log('No se encontraron repos con permisos de escritura para este token.','warn'); }
+
+      // Llenar selector
+      renderRepoOptions(allRepos);
+      repoPicker.classList.remove('hide');
+      updatePushButtonState();
+
+      // Filtro en vivo
+      repoFilterEl.addEventListener('input', ()=>{
+        const term = repoFilterEl.value.toLowerCase().trim();
+        const filtered = !term? allRepos : allRepos.filter(r=> (r.full_name+' '+(r.description||'')).toLowerCase().includes(term) );
+        renderRepoOptions(filtered);
+      });
+
+    } catch(err){
+      log('FALLÓ autenticación/listado: '+err.message,'warn');
+    } finally {
+      connectBtn.disabled = false;
+    }
+  });
+
+  async function fetchAllRepos(){
+    const repos = [];
+    let page = 1; const per = 100;
+    while(true){
+      const url = `https://api.github.com/user/repos?per_page=${per}&page=${page}&sort=updated&direction=desc&affiliation=owner,collaborator,organization_member`;
+      const chunk = await ghJson(url);
+      repos.push(...chunk.filter(r=> (r.permissions && (r.permissions.push || r.permissions.admin)) ));
+      if(chunk.length < per) break;
+      page++; if(page>10) break; // safety
+    }
+    return repos;
+  }
+
+  function renderRepoOptions(list){
+    repoSelect.innerHTML = list.map(r=>{
+      const label = `${r.full_name}  —  ${r.private? 'private' : 'public'}  —  default: ${r.default_branch}`;
+      return `<option value="${r.full_name}">${escapeHtml(label)}</option>`;
+    }).join('');
+    if(list.length){ selectRepoByFullName(list[0].full_name); } else { branchSelect.innerHTML = ''; selectedRepo = null; updateBranchInfo(); }
+    updatePushButtonState();
+  }
+
+  repoSelect.addEventListener('change', ()=>{ const v = repoSelect.value; if(v) selectRepoByFullName(v); });
+
+  async function selectRepoByFullName(full){
+    const repo = allRepos.find(r=> r.full_name === full);
+    if(!repo) return;
+    selectedRepo = repo; openRepoLink.href = repo.html_url;
+    try{
+      const branches = await ghJson(`https://api.github.com/repos/${repo.full_name}/branches?per_page=100`);
+      branchSelect.innerHTML = branches.map(b=>`<option value="${b.name}">${b.name}</option>`).join('');
+      const idx = branches.findIndex(b=> b.name === repo.default_branch); if(idx>=0) branchSelect.selectedIndex = idx;
+      updateBranchInfo();
+    } catch(err){
+      log('No pude listar branches: '+err.message,'warn');
+      branchSelect.innerHTML = `<option value="${repo.default_branch}">${repo.default_branch}</option>`; updateBranchInfo();
+    }
+    updatePushButtonState();
+  }
+
+  function updateBranchInfo(){ const b = branchSelect.value || '—'; branchInfoEl.textContent = 'branch: '+b; }
+  branchSelect.addEventListener('change', updateBranchInfo);
+
+  // ====== Selección de carpeta / ZIP ======
+  function applyExcludes(list){ const patterns = (excludesEl.value||'').split(',').map(s=>s.trim()).filter(Boolean); if(!patterns.length) return list; return list.filter(x=> !patterns.some(p => x.relPath.includes(p)) ); }
+  function clearSelection(){ files=[]; fileTableBody.innerHTML=''; countEl.textContent='0 archivos'; totalEl.textContent='0.00 MB'; setProgress(0,100); resultEl.innerHTML=''; updatePushButtonState(); }
+  resetBtn.addEventListener('click', clearSelection);
+
+  pickBtn.addEventListener('click', ()=> folderPicker.click());
+  folderPicker.addEventListener('change', (e)=>{
+    const picked = Array.from(e.target.files||[]);
+    if(!picked.length){ log('El selector de carpetas devolvió 0 archivos. Si estás en un visor embebido, probá el botón ZIP.', 'warn'); return; }
+    addFilesFromFileList(picked);
+  });
+
+  zipBtn.addEventListener('click', ()=> zipPicker.click());
+  zipPicker.addEventListener('change', async (e)=>{
+    const z = e.target.files && e.target.files[0]; if(!z) return;
+    if(!window.JSZip){ log('No se pudo cargar JSZip desde CDN. Verificá tu conexión.', 'warn'); return; }
+    try{
+      log('Descomprimiendo ZIP en memoria…');
+      const zip = await JSZip.loadAsync(z);
+      const list = [];
+      const entries = Object.keys(zip.files);
+      for(const name of entries){
+        const entry = zip.files[name];
+        if(entry.dir) continue;
+        const ab = await entry.async('arraybuffer');
+        const f = new File([ab], name, {type:'application/octet-stream'});
+        list.push(f);
+      }
+      addFilesFromFileList(list);
+      log('ZIP cargado: '+list.length+' archivos.');
+    } catch(err){
+      log('FALLÓ al leer ZIP: '+err.message, 'warn');
+    }
+  });
+
+  ;['dragenter','dragover'].forEach(evt=> drop.addEventListener(evt, (e)=>{e.preventDefault(); drop.classList.add('dragover');}));
+  ;['dragleave','drop'].forEach(evt=> drop.addEventListener(evt, (e)=>{e.preventDefault(); drop.classList.remove('dragover');}));
+  drop.addEventListener('drop', async (e)=>{
+    e.preventDefault();
+    const dt = e.dataTransfer;
+    // Si soltó un ZIP
+    const zipFile = Array.from(dt.files||[]).find(f=> /\.zip$/i.test(f.name));
+    if(zipFile){ zipPicker.files = dt.files; zipPicker.dispatchEvent(new Event('change')); return; }
+    // Carpeta via entries API
+    const items = dt.items;
+    if(items && items.length && items[0].webkitGetAsEntry){
+      const entries = [];
+      for(const it of items){ const entry = it.webkitGetAsEntry(); if(entry) entries.push(entry); }
+      const gathered = await gatherEntries(entries);
+      addFilesFromFileList(gathered);
+    } else {
+      const fl = Array.from(dt.files||[]);
+      if(!fl.length){ log('No se detectaron archivos en el drop. Si el navegador limita carpetas, probá con ZIP.', 'warn'); return; }
+      addFilesFromFileList(fl);
+    }
+  });
+
+  function addFilesFromFileList(list){
+    if(!list.length) return;
+    const paths = list.map(f=> f.webkitRelativePath || f.name);
+    const common = commonRoot(paths);
+    const limitMB = parseInt(fileLimitEl.value,10);
+    const limitBytes = limitMB*1024*1024;
+
+    const mapped = list.map(f=>({ file:f, relPath:(f.webkitRelativePath || f.name).replace(/^\+/,'').replace(/^\/+/,''), size:f.size }));
+    const trimmed = mapped.map(x=> ({ file:x.file, relPath:x.relPath.startsWith(common)? x.relPath.slice(common.length).replace(/^\/+/, '') : x.relPath, size:x.size }));
+
+    let filtered = applyExcludes(trimmed).filter(x=> x.relPath && !x.relPath.endsWith('/') && x.size >= 0);
+
+    const skipped = [];
+    filtered = filtered.filter(x=>{ if(x.size > limitBytes){ skipped.push(x); return false; } return true; });
+
+    files = filtered;
+    fileTableBody.innerHTML = files.map(f=>`<tr><td>${escapeHtml(f.relPath)}</td><td class="right">${escapeHtml(humanSize(f.size))}</td></tr>`).join('');
+    const total = files.reduce((a,b)=> a+b.size, 0);
+    countEl.textContent = files.length+ ' archivos';
+    totalEl.textContent = humanSize(total);
+    if(skipped.length){ log(`Se omitieron ${skipped.length} archivos por superar el límite por archivo (${limitMB} MB).`, 'warn'); }
+    updatePushButtonState();
+  }
+
+  function commonRoot(paths){ if(paths.length===0) return ''; const parts = paths[0].split('/'); let i= parts.length; while(i>0){ const pref = parts.slice(0,i).join('/') + '/'; if(paths.every(p=> p.startsWith(pref))) return pref; i--; } return ''; }
+
+  async function gatherEntries(entries){
+    const files = [];
+    async function walk(entry, path=''){
+      return new Promise((resolve)=>{
+        if(entry.isFile){ entry.file(f=>{ f.webkitRelativePath = path + entry.name; files.push(f); resolve(); }); }
+        else if(entry.isDirectory){ const reader = entry.createReader(); reader.readEntries(async (ents)=>{ for(const e of ents){ await walk(e, path + entry.name + '/'); } resolve(); }); }
+        else { resolve(); }
+      });
+    }
+    for(const e of entries){ await walk(e); }
+    return files;
+  }
+
+  // ====== GitHub Git Data API ======
+  function withPrefix(path){ const pref = (prefixEl.value||'').trim().replace(/^\/+|\/+$/g,''); return pref? pref + '/' + path.replace(/^\/+/, '') : path; }
+  async function createBlob(ownerRepo, contentBase64){ return ghJson(`https://api.github.com/repos/${ownerRepo}/git/blobs`, {method:'POST', body: JSON.stringify({content: contentBase64, encoding:'base64'})}); }
+  async function createTree(ownerRepo, baseTreeSha, entries){ return ghJson(`https://api.github.com/repos/${ownerRepo}/git/trees`, {method:'POST', body: JSON.stringify({base_tree: baseTreeSha, tree: entries})}); }
+  async function createCommit(ownerRepo, message, treeSha, parentSha){ return ghJson(`https://api.github.com/repos/${ownerRepo}/git/commits`, {method:'POST', body: JSON.stringify({message, tree:treeSha, parents: parentSha ? [parentSha] : []})}); }
+  async function updateRef(ownerRepo, branch, newCommitSha){ return ghJson(`https://api.github.com/repos/${ownerRepo}/git/refs/heads/${encodeURIComponent(branch)}`, {method:'PATCH', body: JSON.stringify({sha:newCommitSha, force:false})}); }
+  async function createRef(ownerRepo, branch, commitSha){ return ghJson(`https://api.github.com/repos/${ownerRepo}/git/refs`, {method:'POST', body: JSON.stringify({ref:`refs/heads/${branch}`, sha:commitSha})}); }
+  async function getRef(ownerRepo, branch){ const res = await fetch(`https://api.github.com/repos/${ownerRepo}/git/ref/heads/${encodeURIComponent(branch)}`, {headers: ghHeaders()}); if(res.status===404) return null; if(!res.ok){ throw new Error('Error obteniendo ref: '+res.status); } return res.json(); }
+  async function getCommit(ownerRepo, sha){ return ghJson(`https://api.github.com/repos/${ownerRepo}/git/commits/${sha}`); }
+
+  function arrayBufferToBase64(buffer){ const bytes = new Uint8Array(buffer); const chunkSize = 0x8000; let binary = ''; for(let i=0;i<bytes.length;i+=chunkSize){ const chunk = bytes.subarray(i, i+chunkSize); binary += String.fromCharCode.apply(null, chunk); } return btoa(binary); }
+  async function fileToBase64(file){ const buf = await file.arrayBuffer(); return arrayBufferToBase64(buf); }
+
+  async function pushAll(){
+    resultEl.innerHTML=''; setProgress(0,100); logEl.innerHTML='';
+    if(!ghToken){ log('Conectate primero (pegá tu token y tocá "Conectar y listar repos").','warn'); return; }
+    if(!selectedRepo){ log('Elegí un repositorio.','warn'); return; }
+    if(files.length===0){ log('No hay archivos seleccionados. Si el selector de carpetas no funciona, probá con el ZIP.', 'warn'); return; }
+
+    const ownerRepo = selectedRepo.full_name; // owner/name
+    const branch = branchSelect.value || selectedRepo.default_branch;
+    const message = (messageEl.value||'Upload via web').trim();
+
+    try{
+      // Obtener base commit/tree
+      log('Obteniendo referencia del branch…');
+      let ref = await getRef(ownerRepo, branch);
+      let baseCommitSha = null; let baseTreeSha = null;
+      if(ref){
+        baseCommitSha = ref.object.sha; const commit = await getCommit(ownerRepo, baseCommitSha); baseTreeSha = commit.tree.sha; log('Branch OK. Último commit: '+baseCommitSha.slice(0,7));
+      } else {
+        log('Branch no existe. Creando…');
+        const emptyTree = await createTree(ownerRepo, undefined, []); // árbol vacío
+        const firstCommit = await createCommit(ownerRepo, 'Initial commit (auto)', emptyTree.sha, null);
+        await createRef(ownerRepo, branch, firstCommit.sha);
+        baseCommitSha = firstCommit.sha; baseTreeSha = emptyTree.sha; log('Branch creado. Commit: '+firstCommit.sha.slice(0,7));
+      }
+
+      // Subir blobs en paralelo
+      const concurrency = 4; let done = 0; const entries = new Array(files.length);
+      async function worker(start){ for(let i=start;i<files.length;i+=concurrency){ const f = files[i]; const b64 = await fileToBase64(f.file); const blob = await createBlob(ownerRepo, b64); entries[i] = {path: withPrefix(f.relPath), mode:'100644', type:'blob', sha: blob.sha}; done++; setProgress(done, files.length); if(done%10===0) log(`Subidos ${done}/${files.length} blobs…`); } }
+      await Promise.all(Array.from({length:concurrency}, (_,k)=>worker(k)));
+
+      // Crear árbol + commit + update ref
+      log('Creando árbol…'); const tree = await createTree(ownerRepo, baseTreeSha, entries.filter(Boolean));
+      log('Creando commit…'); const commit = await createCommit(ownerRepo, message, tree.sha, baseCommitSha);
+      log('Actualizando ref…'); await updateRef(ownerRepo, branch, commit.sha);
+
+      log('Listo. Commit: '+commit.sha.slice(0,7), 'ok');
+      const repoUrl = `${selectedRepo.html_url}/tree/${encodeURIComponent(branch)}/${encodeURIComponent(prefixEl.value||'')}`.replace(/\/+$/,'');
+      resultEl.innerHTML = `<a class="btn accent" href="${selectedRepo.html_url}/commit/${commit.sha}" target="_blank">Ver commit</a> `+
+                           `<a class="btn" href="${repoUrl}" target="_blank">Ver en el repo</a>`;
+    } catch(err){
+      log('FALLÓ: '+err.message,'warn');
+      alert('Error: '+err.message);
+    }
+  }
+
+  pushBtn.addEventListener('click', pushAll);
+
+})();
+</script>
+</body>
+</html>
